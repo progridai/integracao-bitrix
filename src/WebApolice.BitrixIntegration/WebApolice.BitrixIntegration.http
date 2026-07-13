@@ -1,0 +1,6 @@
+@WebApolice.BitrixIntegration_HostAddress = http://localhost:5180
+
+GET {{WebApolice.BitrixIntegration_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
