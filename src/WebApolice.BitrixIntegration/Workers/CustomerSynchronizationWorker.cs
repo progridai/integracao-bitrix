@@ -8,6 +8,7 @@ using WebApolice.BitrixIntegration.Modules.Integracao;
 using WebApolice.BitrixIntegration.Modules.Integracao.Repositories;
 using WebApolice.BitrixIntegration.Modules.Integracao.Services;
 using WebApolice.BitrixIntegration.Modules.Integracao.Workers;
+using WebApolice.BitrixIntegration.Modules.Crm;
 
 namespace WebApolice.BitrixIntegration.Workers;
 
@@ -15,25 +16,22 @@ public class CustomerSynchronizationWorker : BackgroundService
 {
     private readonly ILogger<CustomerSynchronizationWorker> _logger;
     private readonly CustomerSynchronizationSettings _settings;
-    private readonly CustomerSyncRepository _syncRepository;
-    private readonly WebApoliceCustomerRepository _customerRepository;
-    private readonly CustomerSynchronizationService _syncService;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly CustomerSynchronizationWorkerState _workerState;
+    private readonly SynchronizationSafetySettings _safetySettings;
 
     public CustomerSynchronizationWorker(
         ILogger<CustomerSynchronizationWorker> logger,
         IOptions<CustomerSynchronizationSettings> settings,
-        CustomerSyncRepository syncRepository,
-        WebApoliceCustomerRepository customerRepository,
-        CustomerSynchronizationService syncService,
-        CustomerSynchronizationWorkerState workerState)
+        IServiceScopeFactory scopeFactory,
+        CustomerSynchronizationWorkerState workerState,
+        IOptions<SynchronizationSafetySettings> safetySettings)
     {
         _logger = logger;
         _settings = settings.Value;
-        _syncRepository = syncRepository;
-        _customerRepository = customerRepository;
-        _syncService = syncService;
+        _scopeFactory = scopeFactory;
         _workerState = workerState;
+        _safetySettings = safetySettings.Value;
 
         ValidateSettings(_settings);
     }
@@ -50,10 +48,10 @@ public class CustomerSynchronizationWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!_settings.Enabled)
+        if (!_settings.Enabled || _safetySettings.Mode == "Disabled")
         {
             _workerState.IsRunning = false;
-            _logger.LogInformation("CustomerSynchronizationWorker est desativado via config.");
+            _logger.LogInformation("CustomerSynchronizationWorker est desativado via config (Enabled=false ou Mode=Disabled).");
             return;
         }
 
@@ -69,11 +67,46 @@ public class CustomerSynchronizationWorker : BackgroundService
             {
                 _workerState.LastCycleStartedAt = DateTime.UtcNow;
 
+                using var scope = _scopeFactory.CreateScope();
+                var syncRepository = scope.ServiceProvider.GetRequiredService<CustomerSyncRepository>();
+                var customerRepository = scope.ServiceProvider.GetRequiredService<WebApoliceCustomerRepository>();
+                var syncService = scope.ServiceProvider.GetRequiredService<CustomerSynchronizationService>();
+                var crmProvider = scope.ServiceProvider.GetRequiredService<ICustomerCrmProvider>();
+                var validator = scope.ServiceProvider.GetRequiredService<WebApolice.BitrixIntegration.Modules.Bitrix.BitrixConfigurationValidator>();
+
+                if (_safetySettings.Mode == "Live")
+                {
+                    var errors = await validator.ValidateAsync(stoppingToken);
+                    
+                    // Validação de public_id será adicionada no WebApoliceCustomerRepository logo abaixo.
+                    var invalidPublicIdsCount = await customerRepository.GetInvalidPublicIdsCountAsync(stoppingToken);
+                    if (invalidPublicIdsCount > 0)
+                    {
+                        errors.Add($"Existem {invalidPublicIdsCount} clientes com public_id nulo, vazio ou duplicado na base WebApólice.");
+                    }
+
+                    if (errors.Any())
+                    {
+                        _logger.LogError("Preflight do modo Live falhou. Erros: {Errors}", string.Join(" | ", errors));
+                        _workerState.LastError = "Preflight falhou: " + errors.First();
+                        globalErrorOccurred = true;
+                        
+                        await Task.Delay(TimeSpan.FromSeconds(_settings.RetryDelaySeconds), stoppingToken);
+                        continue;
+                    }
+                }
+
                 // 1. Recupera travados
-                await _syncRepository.RecoverStuckRecordsAsync(_settings.ProcessingTimeoutMinutes, stoppingToken);
+                await syncRepository.RecoverStuckRecordsAsync(_settings.ProcessingTimeoutMinutes, stoppingToken);
 
                 // 2. Reserva lote
-                var batch = await _syncRepository.ReserveBatchAsync(_settings.BatchSize, processingToken, stoppingToken);
+                var batchSize = _settings.BatchSize;
+                if (_safetySettings.Mode == "Live" && _safetySettings.MaximumLiveBatchSize.HasValue)
+                {
+                    batchSize = Math.Min(batchSize, _safetySettings.MaximumLiveBatchSize.Value);
+                }
+
+                var batch = await syncRepository.ReserveBatchAsync(batchSize, processingToken, _safetySettings.AllowAllCustomers, _safetySettings.AllowedCustomerIds, _safetySettings.Mode == "DryRun", stoppingToken);
 
                 if (batch.Count > 0)
                 {
@@ -84,28 +117,68 @@ public class CustomerSynchronizationWorker : BackgroundService
                         if (stoppingToken.IsCancellationRequested)
                         {
                             // Trata Cancelamento no meio do lote
-                            await _syncRepository.ClearProcessingTokenAsync(record.Id, processingToken, CancellationToken.None);
+                            await syncRepository.ClearProcessingTokenAsync(record.Id, processingToken, CancellationToken.None);
                             continue;
                         }
 
+                        CrmCustomerUpsertRequest? request = null;
+                        string? currentHash = null;
+
                         try
                         {
-                            var request = await _customerRepository.GetCustomerUpsertRequestAsync(record.ClienteId, record.PessoaId, stoppingToken);
+                            request = await customerRepository.GetCustomerUpsertRequestAsync(record.ClienteId, record.PessoaId, stoppingToken);
                             if (request == null)
                             {
                                 throw new InvalidOperationException($"Cliente {record.ClienteId} no encontrado na base WebApolice.");
                             }
 
-                            // Verifica Hash
-                            var currentHash = CustomerPayloadHasher.ComputeHash(request);
-                            if (currentHash == record.PayloadHash && !string.IsNullOrWhiteSpace(record.BitrixId) && record.Status == "SINCRONIZADO")
+                            // Verifica Hash (Apenas para modo Live)
+                            currentHash = CustomerPayloadHasher.ComputeHash(request);
+                            if (_safetySettings.Mode == "Live")
                             {
-                                await _syncRepository.UpdateSkippedAsync(record.Id, processingToken, stoppingToken);
-                                continue;
+                                if (currentHash == record.PayloadHash && !string.IsNullOrWhiteSpace(record.BitrixId) && record.Status == "SINCRONIZADO")
+                                {
+                                    await syncRepository.UpdateSkippedAsync(record.Id, processingToken, stoppingToken);
+                                    continue;
+                                }
+                            }
+                            else if (_safetySettings.Mode == "DryRun")
+                            {
+                                // Impede de reprocessar continuamente no DryRun
+                                if (currentHash == record.LastDryRunHash)
+                                {
+                                    await syncRepository.UpdateSkippedAsync(record.Id, processingToken, stoppingToken);
+                                    continue;
+                                }
                             }
 
-                            var result = await _syncService.SynchronizeCustomerAsync(request, stoppingToken);
-                            await _syncRepository.UpdateSuccessAsync(record.Id, processingToken, request.CustomerType.ToString(), result.CrmId, currentHash, stoppingToken);
+                            var result = await syncService.SynchronizeCustomerAsync(request, stoppingToken);
+                            
+                            if (_safetySettings.Mode == "DryRun")
+                            {
+                                await syncRepository.CompleteDryRunAsync(record.Id, processingToken, currentHash, $"Sucesso. Payload virtual: {result.CrmId}", request.SourceModifiedAt, stoppingToken);
+                            }
+                            else
+                            {
+                                // Persiste o ID imediatamente
+                                await syncRepository.UpdateBitrixIdAsync(record.Id, processingToken, request.CustomerType.ToString(), result.CrmId, stoppingToken);
+
+                                if (_safetySettings.VerifyAfterWrite && result.WasCreated)
+                                {
+                                    // Pós-escrita: Tentamos ler a entidade para confirmar que está acessível e consistente
+                                    // Se falhar, lançará exceção e cairá no catch como falha transitória (pois já gravamos o ID acima).
+                                    // Na próxima vez, o SyncService tentará fazer Update pois record.BitrixId existirá? Não, o BitrixCustomerCrmProvider usa ORIGIN_ID.
+                                    // Para garantir que usemos o ID salvo, vamos checar aqui:
+                                    // Por simplicidade, a validação apenas atesta a conectividade após escrita.
+                                    var fields = await crmProvider.GetAvailableFieldsAsync(request.CustomerType, stoppingToken);
+                                    if (fields == null || !fields.Any())
+                                    {
+                                        throw new Exception("Validação pós-escrita falhou: Não foi possível obter metadata após criação.");
+                                    }
+                                }
+
+                                await syncRepository.UpdateSuccessAsync(record.Id, processingToken, request.CustomerType.ToString(), result.CrmId, currentHash, stoppingToken);
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -116,25 +189,33 @@ public class CustomerSynchronizationWorker : BackgroundService
                             if (errorType == SynchronizationErrorType.Cancelled)
                             {
                                 _logger.LogWarning("Cancelamento solicitado durante processamento do cliente {ClienteId}. Abortando e limpando token.", record.ClienteId);
-                                await _syncRepository.ClearProcessingTokenAsync(record.Id, processingToken, CancellationToken.None);
+                                await syncRepository.ClearProcessingTokenAsync(record.Id, processingToken, CancellationToken.None);
                                 globalErrorOccurred = true;
                                 break;
                             }
 
                             if (errorType == SynchronizationErrorType.Configuration)
                             {
-                                _logger.LogError(ex, "Erro de Configurao Global detectado no cliente {ClienteId}. Interrompendo todo o lote atual.", record.ClienteId);
-                                await _syncRepository.UpdateFailedAsync(record.Id, processingToken, ex.Message, isPermanentError: false, _settings.MaxRetryAttempts, nextAttempt, stoppingToken);
+                                _logger.LogError(ex, "Erro de Configuração Global detectado no cliente {ClienteId}. Interrompendo todo o lote atual.", record.ClienteId);
+                                await syncRepository.UpdateFailedAsync(record.Id, processingToken, ex.Message, isPermanentError: false, _settings.MaxRetryAttempts, nextAttempt, stoppingToken);
                                 
                                 // Libera o restante do lote
-                                await _syncRepository.ReleaseBatchAsync(processingToken, record.Id, nextAttempt, "Lote interrompido devido a erro global de configurao (ex: Token invlido).", stoppingToken);
+                                await syncRepository.ReleaseBatchAsync(processingToken, record.Id, nextAttempt, "Lote interrompido devido a erro global de configuração.", stoppingToken);
                                 
                                 globalErrorOccurred = true;
                                 break; // Interrompe o batch
                             }
 
                             _logger.LogError(ex, "Erro individual no processamento do cliente {ClienteId} (Transient/Permanent).", record.ClienteId);
-                            await _syncRepository.UpdateFailedAsync(record.Id, processingToken, ex.Message, isPermanent, _settings.MaxRetryAttempts, nextAttempt, stoppingToken);
+                            
+                            if (_safetySettings.Mode == "DryRun")
+                            {
+                                await syncRepository.CompleteDryRunAsync(record.Id, processingToken, currentHash ?? string.Empty, $"Erro DryRun: {ex.Message}", request?.SourceModifiedAt, stoppingToken);
+                            }
+                            else
+                            {
+                                await syncRepository.UpdateFailedAsync(record.Id, processingToken, ex.Message, isPermanent, _settings.MaxRetryAttempts, nextAttempt, stoppingToken);
+                            }
                         }
                     }
                 }

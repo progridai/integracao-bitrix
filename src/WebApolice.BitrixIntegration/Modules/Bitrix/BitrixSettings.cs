@@ -6,5 +6,6 @@ public class BitrixSettings
     public int TimeoutSeconds { get; set; } = 30;
     public bool IgnoreSslValidation { get; set; }
     public string ExternalCustomerIdField { get; set; } = string.Empty;
-    public string DocumentField { get; set; } = string.Empty;
+    public string ContactDocumentField { get; set; } = string.Empty;
+    public string CompanyDocumentField { get; set; } = string.Empty;
 }

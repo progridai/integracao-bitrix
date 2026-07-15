@@ -13,8 +13,8 @@ public static class BitrixCustomerMapper
     {
         var fields = new BitrixContactFields
         {
-            Name = SplitFirstName(request.Name),
-            LastName = SplitLastName(request.Name),
+            Name = request.Name,
+            LastName = string.Empty,
             BirthDate = request.BirthDate?.ToString("yyyy-MM-dd"),
             Comments = request.Notes
         };
@@ -61,9 +61,18 @@ public static class BitrixCustomerMapper
             additionalFields[settings.ExternalCustomerIdField] = request.ExternalCustomerId;
         }
 
-        if (!string.IsNullOrWhiteSpace(settings.DocumentField) && !string.IsNullOrWhiteSpace(request.Document))
+        additionalFields["ORIGINATOR_ID"] = "WEBAPOLICE";
+        additionalFields["ORIGIN_ID"] = request.ExternalPublicId;
+        additionalFields["ORIGIN_VERSION"] = request.SourceModifiedAt?.ToString("yyyy-MM-ddTHH:mm:ssZ");
+
+        // Set document fields based on the configured mapping
+        if (request.CustomerType == CrmCustomerType.Individual && !string.IsNullOrWhiteSpace(settings.ContactDocumentField) && !string.IsNullOrWhiteSpace(request.Document))
         {
-            additionalFields[settings.DocumentField] = request.Document;
+            additionalFields[settings.ContactDocumentField] = request.Document;
+        }
+        else if (request.CustomerType == CrmCustomerType.Company && !string.IsNullOrWhiteSpace(settings.CompanyDocumentField) && !string.IsNullOrWhiteSpace(request.Document))
+        {
+            additionalFields[settings.CompanyDocumentField] = request.Document;
         }
 
         additionalFields[BitrixCustomFields.WebApolicePessoaId] = request.ExternalPersonId;

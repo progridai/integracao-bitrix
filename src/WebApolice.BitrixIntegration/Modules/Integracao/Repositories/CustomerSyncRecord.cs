@@ -22,6 +22,13 @@ public class CustomerSyncRecord
 
     public DateTime? NextAttemptAt { get; set; }
     public Guid? ProcessingToken { get; set; }
+    public DateTime? LastSyncedSourceModifiedAt { get; set; }
+
+    public string? LastDryRunHash { get; set; }
+    public DateTime? LastDryRunAt { get; set; }
+    public DateTime? LastDryRunSourceModifiedAt { get; set; }
+    public string? LastDryRunResult { get; set; }
+
     public DateTime? ProcessingStartedAt { get; set; }
     public string? PayloadHash { get; set; }
 }

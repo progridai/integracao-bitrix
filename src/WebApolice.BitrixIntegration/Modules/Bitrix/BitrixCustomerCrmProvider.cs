@@ -116,41 +116,75 @@ public class BitrixCustomerCrmProvider : ICustomerCrmProvider
 
     private async Task<string?> FindCustomerExistingIdAsync(CrmCustomerUpsertRequest request, CancellationToken cancellationToken)
     {
-        // 1. Busca pelo ID externo (ExternalCustomerIdField)
-        var filterByExtId = new Dictionary<string, string>
+        // 1. Busca pelo ORIGINATOR_ID e ORIGIN_ID
+        var filterByOrigin = new Dictionary<string, string>
         {
-            { _settings.ExternalCustomerIdField, request.ExternalCustomerId }
+            { "ORIGINATOR_ID", "WEBAPOLICE" },
+            { "ORIGIN_ID", request.ExternalPublicId ?? "" }
         };
+
+        // 2. Busca pelo Documento
+        var docField = request.CustomerType == CrmCustomerType.Individual ? _settings.ContactDocumentField : _settings.CompanyDocumentField;
+        var filterByDoc = new Dictionary<string, string>();
+        if (!string.IsNullOrWhiteSpace(docField) && !string.IsNullOrWhiteSpace(request.Document))
+        {
+            filterByDoc.Add(docField, request.Document);
+        }
 
         if (request.CustomerType == CrmCustomerType.Individual)
         {
-            var byExtId = await _contactService.ListByFilterAsync(filterByExtId, cancellationToken);
-            if (byExtId.Any()) return byExtId.First().Id;
-
-            // 2. Opcional: Buscar por CPF/CNPJ
-            if (!string.IsNullOrWhiteSpace(_settings.DocumentField) && !string.IsNullOrWhiteSpace(request.Document))
+            if (!string.IsNullOrWhiteSpace(request.ExternalPublicId))
             {
-                var filterByDoc = new Dictionary<string, string>
-                {
-                    { _settings.DocumentField, request.Document }
-                };
+                var byOrigin = await _contactService.ListByFilterAsync(filterByOrigin, cancellationToken);
+                if (byOrigin.Count == 1) return byOrigin.First().Id?.ToString();
+                if (byOrigin.Count > 1) throw new CrmProviderException("Ambiguidade: Múltiplos contatos encontrados com o mesmo ORIGIN_ID.");
+            }
+
+            if (filterByDoc.Any())
+            {
                 var byDoc = await _contactService.ListByFilterAsync(filterByDoc, cancellationToken);
-                if (byDoc.Any()) return byDoc.First().Id;
+                if (byDoc.Count == 1)
+                {
+                    var entity = byDoc.First();
+                    if (entity.AdditionalFields.TryGetValue("ORIGIN_ID", out var originObj))
+                    {
+                        var originVal = originObj?.ToString();
+                        if (!string.IsNullOrWhiteSpace(originVal) && originVal != request.ExternalPublicId)
+                        {
+                            throw new CrmProviderException($"Ambiguidade: Contato encontrado por Documento ({request.Document}) pertence a outro ORIGIN_ID ({originVal}).");
+                        }
+                    }
+                    return entity.Id?.ToString();
+                }
+                if (byDoc.Count > 1) throw new CrmProviderException("Ambiguidade: Múltiplos contatos encontrados com o mesmo Documento (CPF).");
             }
         }
         else
         {
-            var byExtId = await _companyService.ListByFilterAsync(filterByExtId, cancellationToken);
-            if (byExtId.Any()) return byExtId.First().Id;
-
-            if (!string.IsNullOrWhiteSpace(_settings.DocumentField) && !string.IsNullOrWhiteSpace(request.Document))
+            if (!string.IsNullOrWhiteSpace(request.ExternalPublicId))
             {
-                var filterByDoc = new Dictionary<string, string>
-                {
-                    { _settings.DocumentField, request.Document }
-                };
+                var byOrigin = await _companyService.ListByFilterAsync(filterByOrigin, cancellationToken);
+                if (byOrigin.Count == 1) return byOrigin.First().Id?.ToString();
+                if (byOrigin.Count > 1) throw new CrmProviderException("Ambiguidade: Múltiplas empresas encontradas com o mesmo ORIGIN_ID.");
+            }
+
+            if (filterByDoc.Any())
+            {
                 var byDoc = await _companyService.ListByFilterAsync(filterByDoc, cancellationToken);
-                if (byDoc.Any()) return byDoc.First().Id;
+                if (byDoc.Count == 1)
+                {
+                    var entity = byDoc.First();
+                    if (entity.AdditionalFields.TryGetValue("ORIGIN_ID", out var originObj))
+                    {
+                        var originVal = originObj?.ToString();
+                        if (!string.IsNullOrWhiteSpace(originVal) && originVal != request.ExternalPublicId)
+                        {
+                            throw new CrmProviderException($"Ambiguidade: Empresa encontrada por Documento ({request.Document}) pertence a outro ORIGIN_ID ({originVal}).");
+                        }
+                    }
+                    return entity.Id?.ToString();
+                }
+                if (byDoc.Count > 1) throw new CrmProviderException("Ambiguidade: Múltiplas empresas encontradas com o mesmo Documento (CNPJ).");
             }
         }
 

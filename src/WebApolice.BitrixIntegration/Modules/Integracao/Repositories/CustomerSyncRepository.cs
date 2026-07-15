@@ -20,7 +20,7 @@ public class CustomerSyncRepository
         _logger = logger;
     }
 
-    public virtual async Task<IReadOnlyList<CustomerSyncRecord>> ReserveBatchAsync(int batchSize, Guid processingToken, CancellationToken cancellationToken)
+    public virtual async Task<IReadOnlyList<CustomerSyncRecord>> ReserveBatchAsync(int batchSize, Guid processingToken, bool allowAllCustomers, List<long> allowedCustomerIds, bool isDryRun, CancellationToken cancellationToken)
     {
         using var connection = _dbFactory.CreateConnection();
         await connection.OpenAsync(cancellationToken);
@@ -31,6 +31,8 @@ public class CustomerSyncRepository
                 FROM integracao.bitrix_cliente_sync
                 WHERE status IN ('PENDENTE', 'ERRO')
                   AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+                  AND (@AllowAll = true OR cliente_id = ANY(@AllowedIds))
+                  AND (@IsDryRun = false OR last_dry_run_source_modified_at IS NULL OR source_modified_at > last_dry_run_source_modified_at)
                 ORDER BY id ASC
                 LIMIT @BatchSize
                 FOR UPDATE SKIP LOCKED
@@ -46,7 +48,7 @@ public class CustomerSyncRepository
         ";
 
         var result = await connection.QueryAsync<CustomerSyncRecord>(
-            new CommandDefinition(sql, new { BatchSize = batchSize, ProcessingToken = processingToken }, cancellationToken: cancellationToken));
+            new CommandDefinition(sql, new { BatchSize = batchSize, ProcessingToken = processingToken, AllowAll = allowAllCustomers, AllowedIds = allowedCustomerIds.ToArray(), IsDryRun = isDryRun }, cancellationToken: cancellationToken));
 
         return result.ToList();
     }
@@ -218,6 +220,58 @@ public class CustomerSyncRepository
         { 
             Id = id, 
             ProcessingToken = processingToken
+        }, cancellationToken: cancellationToken));
+    }
+
+    public virtual async Task CompleteDryRunAsync(long id, Guid processingToken, string hash, string resultText, DateTime? sourceModifiedAt, CancellationToken cancellationToken)
+    {
+        using var connection = _dbFactory.CreateConnection();
+        await connection.OpenAsync(cancellationToken);
+
+        var sql = @"
+            UPDATE integracao.bitrix_cliente_sync
+            SET status = 'PENDENTE',
+                processing_token = NULL,
+                processing_started_at = NULL,
+                last_dry_run_hash = @Hash,
+                last_dry_run_at = NOW(),
+                last_dry_run_result = @Result,
+                last_dry_run_source_modified_at = @SourceModifiedAt
+            WHERE id = @Id 
+              AND processing_token = @ProcessingToken 
+              AND status = 'SINCRONIZANDO';
+        ";
+
+        await connection.ExecuteAsync(new CommandDefinition(sql, new 
+        { 
+            Id = id, 
+            ProcessingToken = processingToken,
+            Hash = hash,
+            Result = resultText,
+            SourceModifiedAt = sourceModifiedAt
+        }, cancellationToken: cancellationToken));
+    }
+
+    public virtual async Task UpdateBitrixIdAsync(long id, Guid processingToken, string bitrixEntityType, string bitrixId, CancellationToken cancellationToken)
+    {
+        using var connection = _dbFactory.CreateConnection();
+        await connection.OpenAsync(cancellationToken);
+
+        var sql = @"
+            UPDATE integracao.bitrix_cliente_sync
+            SET bitrix_entity_type = @BitrixEntityType,
+                bitrix_id = @BitrixId
+            WHERE id = @Id 
+              AND processing_token = @ProcessingToken 
+              AND status = 'SINCRONIZANDO';
+        ";
+
+        await connection.ExecuteAsync(new CommandDefinition(sql, new 
+        { 
+            Id = id, 
+            ProcessingToken = processingToken,
+            BitrixEntityType = bitrixEntityType,
+            BitrixId = bitrixId
         }, cancellationToken: cancellationToken));
     }
 }

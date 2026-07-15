@@ -15,7 +15,8 @@ public class BitrixCustomerMapperTests
         _settings = new BitrixSettings
         {
             ExternalCustomerIdField = "UF_EXT_ID",
-            DocumentField = "UF_DOC"
+            ContactDocumentField = "UF_DOC",
+            CompanyDocumentField = "UF_DOC"
         };
     }
 

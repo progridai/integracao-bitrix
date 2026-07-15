@@ -31,6 +31,7 @@ public class CrmCustomerUpsertRequest
     public string ExternalCustomerId { get; set; } = string.Empty;
     public string? ExternalPersonId { get; set; }
     public string? ExternalPublicId { get; set; }
+    public DateTime? SourceModifiedAt { get; set; }
     
     public string Name { get; set; } = string.Empty;
     public string? Document { get; set; }

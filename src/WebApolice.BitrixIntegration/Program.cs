@@ -45,10 +45,13 @@ builder.Services.AddHttpClient<WebApolice.BitrixIntegration.Modules.Bitrix.Bitri
 builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Bitrix.Services.BitrixProfileService>();
 builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Bitrix.Services.BitrixContactService>();
 builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Bitrix.Services.BitrixCompanyService>();
+builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Bitrix.BitrixConfigurationValidator>();
 
 // Worker State and Settings
 builder.Services.Configure<WebApolice.BitrixIntegration.Modules.Integracao.CustomerSynchronizationSettings>(
     builder.Configuration.GetSection("Integration:CustomerSynchronization"));
+builder.Services.Configure<WebApolice.BitrixIntegration.Modules.Integracao.SynchronizationSafetySettings>(
+    builder.Configuration.GetSection("Integration:SynchronizationSafety"));
 builder.Services.AddSingleton<WebApolice.BitrixIntegration.Modules.Integracao.Workers.CustomerSynchronizationWorkerState>();
 
 builder.Services.Configure<WebApolice.BitrixIntegration.Modules.Integracao.CustomerDiscoverySettings>(
@@ -63,6 +66,7 @@ builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Integracao.Repos
 // CRM Provider & Sincronizao
 builder.Services.AddScoped<ICustomerCrmProvider, WebApolice.BitrixIntegration.Modules.Bitrix.BitrixCustomerCrmProvider>();
 builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Integracao.Services.CustomerSynchronizationService>();
+builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Integracao.Services.CustomerReconciliationService>();
 
 // Workers
 builder.Services.AddHostedService<WebApolice.BitrixIntegration.Workers.CustomerSynchronizationWorker>();

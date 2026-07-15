@@ -18,6 +18,15 @@ public class BitrixContactFields
     [JsonPropertyName("COMMENTS")]
     public string? Comments { get; set; }
 
+    [JsonPropertyName("ORIGINATOR_ID")]
+    public string? OriginatorId { get; set; }
+
+    [JsonPropertyName("ORIGIN_ID")]
+    public string? OriginId { get; set; }
+
+    [JsonPropertyName("ORIGIN_VERSION")]
+    public string? OriginVersion { get; set; }
+
     [JsonPropertyName("PHONE")]
     public List<BitrixPhoneEmail> Phones { get; set; } = new();
 
@@ -35,6 +44,15 @@ public class BitrixCompanyFields
 
     [JsonPropertyName("COMMENTS")]
     public string? Comments { get; set; }
+
+    [JsonPropertyName("ORIGINATOR_ID")]
+    public string? OriginatorId { get; set; }
+
+    [JsonPropertyName("ORIGIN_ID")]
+    public string? OriginId { get; set; }
+
+    [JsonPropertyName("ORIGIN_VERSION")]
+    public string? OriginVersion { get; set; }
 
     [JsonPropertyName("PHONE")]
     public List<BitrixPhoneEmail> Phones { get; set; } = new();
