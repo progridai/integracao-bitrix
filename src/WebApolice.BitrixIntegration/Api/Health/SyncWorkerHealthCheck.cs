@@ -12,45 +12,56 @@ namespace WebApolice.BitrixIntegration.Api.Health;
 public class SyncWorkerHealthCheck : IHealthCheck
 {
     private readonly DbConnectionFactory _dbFactory;
-    private readonly CustomerSynchronizationSettings _settings;
-    private readonly CustomerSynchronizationWorkerState _workerState;
+    private readonly CustomerSynchronizationSettings _syncSettings;
+    private readonly CustomerSynchronizationWorkerState _syncWorkerState;
+    private readonly CustomerDiscoverySettings _discoverySettings;
+    private readonly CustomerDiscoveryWorkerState _discoveryWorkerState;
 
-    public SyncWorkerHealthCheck(DbConnectionFactory dbFactory, IOptions<CustomerSynchronizationSettings> settings, CustomerSynchronizationWorkerState workerState)
+    public SyncWorkerHealthCheck(
+        DbConnectionFactory dbFactory, 
+        IOptions<CustomerSynchronizationSettings> syncSettings, 
+        CustomerSynchronizationWorkerState syncWorkerState,
+        IOptions<CustomerDiscoverySettings> discoverySettings,
+        CustomerDiscoveryWorkerState discoveryWorkerState)
     {
         _dbFactory = dbFactory;
-        _settings = settings.Value;
-        _workerState = workerState;
+        _syncSettings = syncSettings.Value;
+        _syncWorkerState = syncWorkerState;
+        _discoverySettings = discoverySettings.Value;
+        _discoveryWorkerState = discoveryWorkerState;
     }
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        if (!_settings.Enabled)
-        {
-            return HealthCheckResult.Healthy("A sincronizao de clientes est desabilitada. O servio operante de forma saudvel.");
-        }
-
         try
         {
             using var connection = _dbFactory.CreateConnection();
             await connection.OpenAsync(cancellationToken);
-            // Basic ping to check if DB is accessible
+            // Ping
         }
         catch (Exception ex)
         {
             return HealthCheckResult.Unhealthy("Falha ao conectar no banco de dados.", ex);
         }
 
-        if (!_workerState.IsRunning)
+        if (_syncSettings.Enabled)
         {
-            return HealthCheckResult.Unhealthy("Worker est habilitado, mas no est rodando.");
+            if (!_syncWorkerState.IsRunning)
+                return HealthCheckResult.Unhealthy("Sync Worker est habilitado, mas no est rodando.");
+
+            if (_syncWorkerState.LastCycleStartedAt.HasValue && _syncWorkerState.LastCycleStartedAt.Value < DateTime.UtcNow.AddMinutes(-30))
+                return HealthCheckResult.Unhealthy("O Sync worker no inicia novos ciclos h mais de 30 minutos.");
         }
 
-        if (_workerState.LastCycleStartedAt.HasValue && _workerState.LastCycleStartedAt.Value < DateTime.UtcNow.AddMinutes(-30))
+        if (_discoverySettings.Enabled)
         {
-            // Worker travou e no inicia ciclos h 30 min.
-            return HealthCheckResult.Unhealthy("O worker no inicia novos ciclos h mais de 30 minutos.");
+            if (!_discoveryWorkerState.IsRunning)
+                return HealthCheckResult.Unhealthy("Discovery Worker est habilitado, mas no est rodando.");
+
+            if (_discoveryWorkerState.LastCycleStartedAt.HasValue && _discoveryWorkerState.LastCycleStartedAt.Value < DateTime.UtcNow.AddMinutes(-30))
+                return HealthCheckResult.Unhealthy("O Discovery worker no inicia novos ciclos h mais de 30 minutos.");
         }
 
-        return HealthCheckResult.Healthy("O worker de sincronizao est operando normalmente.");
+        return HealthCheckResult.Healthy("A integrao est operando normalmente.");
     }
 }

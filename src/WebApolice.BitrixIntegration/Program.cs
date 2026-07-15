@@ -51,9 +51,14 @@ builder.Services.Configure<WebApolice.BitrixIntegration.Modules.Integracao.Custo
     builder.Configuration.GetSection("Integration:CustomerSynchronization"));
 builder.Services.AddSingleton<WebApolice.BitrixIntegration.Modules.Integracao.Workers.CustomerSynchronizationWorkerState>();
 
+builder.Services.Configure<WebApolice.BitrixIntegration.Modules.Integracao.CustomerDiscoverySettings>(
+    builder.Configuration.GetSection("Integration:CustomerDiscovery"));
+builder.Services.AddSingleton<WebApolice.BitrixIntegration.Modules.Integracao.Workers.CustomerDiscoveryWorkerState>();
+
 // Worker Repositories
 builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Integracao.Repositories.CustomerSyncRepository>();
 builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Integracao.Repositories.WebApoliceCustomerRepository>();
+builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Integracao.Repositories.IWebApoliceCustomerSource, WebApolice.BitrixIntegration.Modules.Integracao.Repositories.WebApoliceCustomerSource>();
 
 // CRM Provider & Sincronizao
 builder.Services.AddScoped<ICustomerCrmProvider, WebApolice.BitrixIntegration.Modules.Bitrix.BitrixCustomerCrmProvider>();
@@ -61,6 +66,7 @@ builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Integracao.Servi
 
 // Workers
 builder.Services.AddHostedService<WebApolice.BitrixIntegration.Workers.CustomerSynchronizationWorker>();
+builder.Services.AddHostedService<WebApolice.BitrixIntegration.Modules.Integracao.Workers.WebApoliceCustomerDiscoveryWorker>();
 
 // Health Checks
 builder.Services.AddHealthChecks()

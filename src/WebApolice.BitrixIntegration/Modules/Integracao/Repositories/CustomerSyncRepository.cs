@@ -38,7 +38,8 @@ public class CustomerSyncRepository
             UPDATE integracao.bitrix_cliente_sync target
             SET status = 'SINCRONIZANDO',
                 processing_token = @ProcessingToken,
-                processing_started_at = NOW()
+                processing_started_at = NOW(),
+                processing_source_modified_at = source_modified_at
             FROM reservable
             WHERE target.id = reservable.id
             RETURNING target.*;
@@ -110,7 +111,10 @@ public class CustomerSyncRepository
 
         var sql = @"
             UPDATE integracao.bitrix_cliente_sync
-            SET status = 'SINCRONIZADO',
+            SET status = CASE 
+                            WHEN source_modified_at > processing_source_modified_at THEN 'PENDENTE'
+                            ELSE 'SINCRONIZADO'
+                         END,
                 bitrix_entity_type = @BitrixEntityType,
                 bitrix_id = @BitrixId,
                 payload_hash = @Hash,
@@ -119,7 +123,11 @@ public class CustomerSyncRepository
                 processing_started_at = NULL,
                 ultimo_erro = NULL,
                 next_attempt_at = NULL,
-                tentativas = 0
+                tentativas = CASE 
+                                WHEN source_modified_at > processing_source_modified_at THEN 0
+                                ELSE 0
+                             END,
+                last_synced_source_modified_at = processing_source_modified_at
             WHERE id = @Id 
               AND processing_token = @ProcessingToken 
               AND status = 'SINCRONIZANDO';
