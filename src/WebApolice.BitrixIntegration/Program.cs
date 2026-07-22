@@ -9,6 +9,9 @@ using WebApolice.BitrixIntegration.Modules.Crm;
 using WebApolice.BitrixIntegration.Modules.Integracao;
 using WebApolice.BitrixIntegration.Modules.WebApolice;
 using WebApolice.BitrixIntegration.Workers;
+using WebApolice.BitrixIntegration.Modules.Bitrix.Services;
+
+Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -45,7 +48,7 @@ builder.Services.AddHttpClient<WebApolice.BitrixIntegration.Modules.Bitrix.Bitri
 builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Bitrix.Services.BitrixProfileService>();
 builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Bitrix.Services.BitrixContactService>();
 builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Bitrix.Services.BitrixCompanyService>();
-builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Bitrix.BitrixConfigurationValidator>();
+builder.Services.AddScoped<WebApolice.BitrixIntegration.Modules.Bitrix.IBitrixConfigurationValidator, WebApolice.BitrixIntegration.Modules.Bitrix.BitrixConfigurationValidator>();
 
 // Worker State and Settings
 builder.Services.Configure<WebApolice.BitrixIntegration.Modules.Integracao.CustomerSynchronizationSettings>(

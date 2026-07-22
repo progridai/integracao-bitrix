@@ -8,7 +8,7 @@ using WebApolice.BitrixIntegration.Modules.Crm;
 
 namespace WebApolice.BitrixIntegration.Modules.Bitrix;
 
-public class BitrixConfigurationValidator
+public class BitrixConfigurationValidator : IBitrixConfigurationValidator
 {
     private readonly BitrixContactService _contactService;
     private readonly BitrixCompanyService _companyService;

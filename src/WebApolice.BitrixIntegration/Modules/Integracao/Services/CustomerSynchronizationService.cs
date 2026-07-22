@@ -19,7 +19,7 @@ public class CustomerSynchronizationService
         _logger = logger;
     }
 
-    public async Task<CrmCustomerUpsertResult> SynchronizeCustomerAsync(
+    public virtual async Task<CrmCustomerUpsertResult> SynchronizeCustomerAsync(
         CrmCustomerUpsertRequest request, 
         CancellationToken cancellationToken)
     {

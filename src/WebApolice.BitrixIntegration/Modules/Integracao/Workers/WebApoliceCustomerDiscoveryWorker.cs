@@ -13,19 +13,19 @@ public class WebApoliceCustomerDiscoveryWorker : BackgroundService
 {
     private readonly ILogger<WebApoliceCustomerDiscoveryWorker> _logger;
     private readonly CustomerDiscoverySettings _settings;
-    private readonly IWebApoliceCustomerSource _customerSource;
+    private readonly IServiceProvider _serviceProvider;
     private readonly CustomerDiscoveryWorkerState _workerState;
     private readonly Channel<bool> _runOnceChannel;
 
     public WebApoliceCustomerDiscoveryWorker(
         ILogger<WebApoliceCustomerDiscoveryWorker> logger,
         IOptions<CustomerDiscoverySettings> settings,
-        IWebApoliceCustomerSource customerSource,
+        IServiceProvider serviceProvider,
         CustomerDiscoveryWorkerState workerState)
     {
         _logger = logger;
         _settings = settings.Value;
-        _customerSource = customerSource;
+        _serviceProvider = serviceProvider;
         _workerState = workerState;
         
         // Channel para processar sinais run-once
@@ -90,9 +90,12 @@ public class WebApoliceCustomerDiscoveryWorker : BackgroundService
 
             try
             {
+                using var scope = _serviceProvider.CreateScope();
+                var customerSource = scope.ServiceProvider.GetRequiredService<IWebApoliceCustomerSource>();
+
                 _workerState.LastCycleStartedAt = DateTime.UtcNow;
 
-                var checkpoint = await _customerSource.GetCheckpointAsync(stoppingToken);
+                var checkpoint = await customerSource.GetCheckpointAsync(stoppingToken);
 
                 if (checkpoint == null)
                 {
@@ -100,15 +103,15 @@ public class WebApoliceCustomerDiscoveryWorker : BackgroundService
                     if (_settings.InitialLoadEnabled)
                     {
                         // Inicia da menor data possvel
-                        await _customerSource.CreateInitialCheckpointAsync(new DateTime(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc), 0, stoppingToken);
-                        checkpoint = await _customerSource.GetCheckpointAsync(stoppingToken);
+                        await customerSource.CreateInitialCheckpointAsync(new DateTime(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc), 0, stoppingToken);
+                        checkpoint = await customerSource.GetCheckpointAsync(stoppingToken);
                     }
                     else
                     {
                         // Inicia do MAIOR cursor disponvel
-                        var maxCursor = await _customerSource.GetMaxCursorAsync(stoppingToken);
-                        await _customerSource.CreateInitialCheckpointAsync(maxCursor.LastModifiedAt, maxCursor.LastEntityId, stoppingToken);
-                        checkpoint = await _customerSource.GetCheckpointAsync(stoppingToken);
+                        var maxCursor = await customerSource.GetMaxCursorAsync(stoppingToken);
+                        await customerSource.CreateInitialCheckpointAsync(maxCursor.LastModifiedAt, maxCursor.LastEntityId, stoppingToken);
+                        checkpoint = await customerSource.GetCheckpointAsync(stoppingToken);
                         _logger.LogInformation("Carga inicial desabilitada. Checkpoint inicializado no cursor mximo: Data {Date}, ID {Id}", maxCursor.LastModifiedAt, maxCursor.LastEntityId);
                     }
                 }
@@ -126,10 +129,10 @@ public class WebApoliceCustomerDiscoveryWorker : BackgroundService
 
                     // Marca incio
                     // (Na arquitetura atual, IWebApoliceCustomerSource faz Read -> Upsert -> Update Checkpoint tudo na mesma Transaction).
-                    await _customerSource.ProcessBatchAsync(checkpoint, currentBatchSize, stoppingToken);
+                    await customerSource.ProcessBatchAsync(checkpoint, currentBatchSize, stoppingToken);
 
                     // Atualiza State com novo Checkpoint
-                    var newCheckpoint = await _customerSource.GetCheckpointAsync(stoppingToken);
+                    var newCheckpoint = await customerSource.GetCheckpointAsync(stoppingToken);
                     if (newCheckpoint != null)
                     {
                         _workerState.LastCheckpointAt = newCheckpoint.LastModifiedAt;

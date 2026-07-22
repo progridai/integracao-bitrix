@@ -35,10 +35,30 @@ public class WebApoliceCustomerDiscoveryWorkerTests
     public async Task ExecuteAsync_WhenDisabled_ShouldNotRun()
     {
         _settings.Enabled = false;
+        var mockServiceProvider = new Mock<IServiceProvider>();
+        var mockServiceScope = new Mock<Microsoft.Extensions.DependencyInjection.IServiceScope>();
+        var mockServiceScopeFactory = new Mock<Microsoft.Extensions.DependencyInjection.IServiceScopeFactory>();
+
+        mockServiceProvider
+            .Setup(x => x.GetService(typeof(Microsoft.Extensions.DependencyInjection.IServiceScopeFactory)))
+            .Returns(mockServiceScopeFactory.Object);
+
+        mockServiceScopeFactory
+            .Setup(x => x.CreateScope())
+            .Returns(mockServiceScope.Object);
+
+        mockServiceScope
+            .Setup(x => x.ServiceProvider)
+            .Returns(mockServiceProvider.Object);
+
+        mockServiceProvider
+            .Setup(x => x.GetService(typeof(IWebApoliceCustomerSource)))
+            .Returns(_mockSource.Object);
+
         var worker = new WebApoliceCustomerDiscoveryWorker(
             new NullLogger<WebApoliceCustomerDiscoveryWorker>(),
             Options.Create(_settings),
-            _mockSource.Object,
+            mockServiceProvider.Object,
             _state);
 
         await worker.StartAsync(CancellationToken.None);
@@ -53,10 +73,30 @@ public class WebApoliceCustomerDiscoveryWorkerTests
     [Fact]
     public async Task ExecuteAsync_InitialLoadFalse_ShouldCreateCheckpointWithMaxCursor()
     {
+        var mockServiceProvider = new Mock<IServiceProvider>();
+        var mockServiceScope = new Mock<Microsoft.Extensions.DependencyInjection.IServiceScope>();
+        var mockServiceScopeFactory = new Mock<Microsoft.Extensions.DependencyInjection.IServiceScopeFactory>();
+
+        mockServiceProvider
+            .Setup(x => x.GetService(typeof(Microsoft.Extensions.DependencyInjection.IServiceScopeFactory)))
+            .Returns(mockServiceScopeFactory.Object);
+
+        mockServiceScopeFactory
+            .Setup(x => x.CreateScope())
+            .Returns(mockServiceScope.Object);
+
+        mockServiceScope
+            .Setup(x => x.ServiceProvider)
+            .Returns(mockServiceProvider.Object);
+
+        mockServiceProvider
+            .Setup(x => x.GetService(typeof(IWebApoliceCustomerSource)))
+            .Returns(_mockSource.Object);
+
         var worker = new WebApoliceCustomerDiscoveryWorker(
             new NullLogger<WebApoliceCustomerDiscoveryWorker>(),
             Options.Create(_settings),
-            _mockSource.Object,
+            mockServiceProvider.Object,
             _state);
 
         _mockSource.SetupSequence(x => x.GetCheckpointAsync(It.IsAny<CancellationToken>()))
@@ -82,10 +122,30 @@ public class WebApoliceCustomerDiscoveryWorkerTests
     public async Task ExecuteAsync_InitialLoadTrue_ShouldCreateCheckpointFrom1900()
     {
         _settings.InitialLoadEnabled = true;
+        var mockServiceProvider = new Mock<IServiceProvider>();
+        var mockServiceScope = new Mock<Microsoft.Extensions.DependencyInjection.IServiceScope>();
+        var mockServiceScopeFactory = new Mock<Microsoft.Extensions.DependencyInjection.IServiceScopeFactory>();
+
+        mockServiceProvider
+            .Setup(x => x.GetService(typeof(Microsoft.Extensions.DependencyInjection.IServiceScopeFactory)))
+            .Returns(mockServiceScopeFactory.Object);
+
+        mockServiceScopeFactory
+            .Setup(x => x.CreateScope())
+            .Returns(mockServiceScope.Object);
+
+        mockServiceScope
+            .Setup(x => x.ServiceProvider)
+            .Returns(mockServiceProvider.Object);
+
+        mockServiceProvider
+            .Setup(x => x.GetService(typeof(IWebApoliceCustomerSource)))
+            .Returns(_mockSource.Object);
+
         var worker = new WebApoliceCustomerDiscoveryWorker(
             new NullLogger<WebApoliceCustomerDiscoveryWorker>(),
             Options.Create(_settings),
-            _mockSource.Object,
+            mockServiceProvider.Object,
             _state);
 
         _mockSource.SetupSequence(x => x.GetCheckpointAsync(It.IsAny<CancellationToken>()))

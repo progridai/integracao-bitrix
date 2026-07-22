@@ -72,7 +72,7 @@ public class CustomerSynchronizationWorker : BackgroundService
                 var customerRepository = scope.ServiceProvider.GetRequiredService<WebApoliceCustomerRepository>();
                 var syncService = scope.ServiceProvider.GetRequiredService<CustomerSynchronizationService>();
                 var crmProvider = scope.ServiceProvider.GetRequiredService<ICustomerCrmProvider>();
-                var validator = scope.ServiceProvider.GetRequiredService<WebApolice.BitrixIntegration.Modules.Bitrix.BitrixConfigurationValidator>();
+                var validator = scope.ServiceProvider.GetRequiredService<WebApolice.BitrixIntegration.Modules.Bitrix.IBitrixConfigurationValidator>();
 
                 if (_safetySettings.Mode == "Live")
                 {
@@ -161,7 +161,8 @@ public class CustomerSynchronizationWorker : BackgroundService
                             else
                             {
                                 // Persiste o ID imediatamente
-                                await syncRepository.UpdateBitrixIdAsync(record.Id, processingToken, request.CustomerType.ToString(), result.CrmId, stoppingToken);
+                                string type = request.CustomerType.ToString().ToUpper() == "CONTACT" ? "CONTACT" : "COMPANY";
+                                await syncRepository.UpdateBitrixIdAsync(record.Id, processingToken, type, result.CrmId, stoppingToken);
 
                                 if (_safetySettings.VerifyAfterWrite && result.WasCreated)
                                 {
@@ -177,7 +178,7 @@ public class CustomerSynchronizationWorker : BackgroundService
                                     }
                                 }
 
-                                await syncRepository.UpdateSuccessAsync(record.Id, processingToken, request.CustomerType.ToString(), result.CrmId, currentHash, stoppingToken);
+                                await syncRepository.UpdateSuccessAsync(record.Id, processingToken, type, result.CrmId, currentHash, stoppingToken);
                             }
                         }
                         catch (Exception ex)

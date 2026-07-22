@@ -27,9 +27,9 @@ public class WebApoliceCustomerRepository
                 c.id as ExternalCustomerId,
                 p.id as ExternalPersonId,
                 c.public_id as ExternalPublicId,
-                p.tipo as CustomerTypeString,
+                p.tipo_pessoa as CustomerTypeString,
                 p.nome as Name,
-                p.cpf_cnpj as Document,
+                p.documento_principal_limpo as Document,
                 p.data_nascimento as BirthDate,
                 (SELECT c.updated_at) as SourceModifiedAt,
                 e.valor as EmailValue,
@@ -79,7 +79,7 @@ public class WebApoliceCustomerRepository
             Name = dto.name ?? "Cliente Sem Nome",
             Document = dto.document,
             BirthDate = dto.birthdate,
-            CustomerType = (dto.customertypestring?.ToString()?.ToUpper() == "J") ? CrmCustomerType.Company : CrmCustomerType.Individual
+            CustomerType = (dto.customertypestring?.ToString() == "2") ? CrmCustomerType.Company : CrmCustomerType.Individual
         };
 
         if (!string.IsNullOrWhiteSpace((string?)dto.emailvalue))
@@ -94,7 +94,7 @@ public class WebApoliceCustomerRepository
         return request;
     }
 
-    public async Task<int> GetInvalidPublicIdsCountAsync(CancellationToken cancellationToken)
+    public virtual async Task<int> GetInvalidPublicIdsCountAsync(CancellationToken cancellationToken)
     {
         using var connection = _dbFactory.CreateConnection();
         var sql = @"
